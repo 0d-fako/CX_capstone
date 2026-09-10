@@ -54,6 +54,21 @@ def test_instagram_item_maps_to_envelope():
 def test_tiktok_item_duration_is_seconds():
     cap = parse_tiktok_item(TT_ITEM, "acme")
     assert cap and cap.media_duration_s == 15
+
+
+def test_tiktok_url_constructed_when_trimmed_response_omits_it():
+    item = {**TT_ITEM}
+    del item["share_url"]
+    cap = parse_tiktok_item(item, "@acme")
+    assert cap and cap.url == "https://www.tiktok.com/@acme/video/7301"
+
+
+def test_twitter_video_duration_from_extended_entities():
+    item = {**TW_ITEM, "legacy": {**TW_ITEM["legacy"],
+            "entities": {"media": [{"type": "video"}]},
+            "extended_entities": {"media": [{"type": "video", "video_info": {"duration_millis": 95400}}]}}}
+    cap = parse_twitter_item(item, "acme")
+    assert cap and cap.media_type == "video" and cap.media_duration_s == 95
     assert cap.metrics.shares == 300 and cap.metrics.views == 99000
 
 

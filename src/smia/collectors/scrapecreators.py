@@ -114,7 +114,7 @@ def parse_tiktok_item(item: dict[str, Any], handle: str) -> RawCapture | None:
         content=item.get("desc") or None,
         media_type="video",
         media_duration_s=round(int(duration_ms) / 1000) if duration_ms else None,
-        url=item.get("share_url"),
+        url=item.get("share_url") or f"https://www.tiktok.com/@{handle.lstrip('@')}/video/{aweme_id}",
         metrics=Metrics(
             likes=_int(stats.get("digg_count")) or 0,
             comments=_int(stats.get("comment_count")) or 0,
@@ -151,6 +151,12 @@ def parse_twitter_item(item: dict[str, Any], handle: str) -> RawCapture | None:
         posted_at = posted_at.replace(tzinfo=UTC)
     views = _int(_get(item, "views", "count"), None)
     url = item.get("url") or f"https://x.com/{handle}/status/{tweet_id}"
+    duration_s = None
+    for m in _get(legacy, "extended_entities", "media", default=[]) or []:
+        ms = _get(m, "video_info", "duration_millis") if isinstance(m, dict) else None
+        if ms:
+            duration_s = round(int(ms) / 1000)
+            break
     return RawCapture(
         platform="twitter",
         handle=handle,
@@ -158,7 +164,7 @@ def parse_twitter_item(item: dict[str, Any], handle: str) -> RawCapture | None:
         posted_at=posted_at,
         content=legacy.get("full_text") or None,
         media_type=_twitter_media_type(legacy),  # type: ignore[arg-type]
-        media_duration_s=None,  # not in the documented response
+        media_duration_s=duration_s,  # from extended_entities when present
         url=url,
         metrics=Metrics(
             likes=_int(legacy.get("favorite_count")) or 0,
