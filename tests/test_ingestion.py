@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import UTC, datetime
 
@@ -37,9 +36,43 @@ def test_definition_hash_is_stable_and_whitespace_insensitive():
 
 # --------------------------------------------------------------------------- integration
 
-needs_db = pytest.mark.skipif(
-    not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set; integration test skipped"
-)
+def _has_db() -> bool:
+    try:
+        from smia.settings import get_settings
+
+        return bool(get_settings().database_url)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+needs_db = pytest.mark.skipif(not _has_db(), reason="no DATABASE_URL; integration test skipped")
+
+
+@pytest.fixture
+def tenant_id():
+    """A throwaway tenant, removed with everything it owns after the test."""
+    from sqlalchemy import delete, select
+
+    from smia.db.models import MetricSnapshot, PipelineRun, Post, PostLabel, Target, Tenant
+    from smia.db.models import RawCapture as Raw
+    from smia.db.session import db_session
+
+    name = f"pytest-{uuid.uuid4().hex[:8]}"
+    with db_session() as s:
+        t = Tenant(name=name, industry="test")
+        s.add(t)
+        s.flush()
+        tid = t.id
+    yield tid
+    with db_session() as s:
+        pids = select(Post.id).where(Post.tenant_id == tid)
+        s.execute(delete(PostLabel).where(PostLabel.post_id.in_(pids)))
+        s.execute(delete(MetricSnapshot).where(MetricSnapshot.post_id.in_(pids)))
+        s.execute(delete(Post).where(Post.tenant_id == tid))
+        s.execute(delete(Raw).where(Raw.tenant_id == tid))
+        s.execute(delete(PipelineRun).where(PipelineRun.tenant_id == tid))
+        s.execute(delete(Target).where(Target.tenant_id == tid))
+        s.execute(delete(Tenant).where(Tenant.id == tid))
 
 
 class FakeCollector:
@@ -63,19 +96,16 @@ def _cap(pid: str, likes: int) -> RawCapture:
 
 
 @needs_db
-def test_collect_twice_is_idempotent():
+def test_collect_twice_is_idempotent(tenant_id):
     from sqlalchemy import func, select
 
-    from smia.db.models import MetricSnapshot, Post, PostLabel, Target, Tenant
+    from smia.db.models import MetricSnapshot, Post, PostLabel, Target
     from smia.db.session import db_session
     from smia.pipeline import collect
 
-    name = f"pytest-{uuid.uuid4().hex[:8]}"
+    tid = tenant_id
     with db_session() as s:
-        t = Tenant(name=name, industry="test")
-        s.add(t); s.flush()
-        s.add(Target(tenant_id=t.id, platform="instagram", handle="acme_test"))
-        tid = t.id
+        s.add(Target(tenant_id=tid, platform="instagram", handle="acme_test"))
 
     caps = [_cap("p1", 10), _cap("p2", 20)]
     with db_session() as s:
@@ -98,15 +128,14 @@ def test_collect_twice_is_idempotent():
 
 
 @needs_db
-def test_canary_on_silent_target():
-    from smia.db.models import PipelineRun, Target, Tenant
+def test_canary_on_silent_target(tenant_id):
+    from smia.db.models import PipelineRun, Target
     from smia.db.session import db_session
     from smia.pipeline import collect
 
-    name = f"pytest-{uuid.uuid4().hex[:8]}"
+    tid = tenant_id
     with db_session() as s:
-        t = Tenant(name=name, industry="test"); s.add(t); s.flush()
-        s.add(Target(tenant_id=t.id, platform="tiktok", handle="silent")); tid = t.id
+        s.add(Target(tenant_id=tid, platform="tiktok", handle="silent"))
     with db_session() as s:
         summary = collect(s, tid, FakeCollector([]))
         run = s.get(PipelineRun, summary.pipeline_run_id)
