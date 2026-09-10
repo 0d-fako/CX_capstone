@@ -1,6 +1,6 @@
 """Ingestion: RawCapture -> raw_captures + posts + metric_snapshots + rule format label.
 
-Everything here is an upsert keyed on (platform, post_id) or (post_id, captured_on), so a
+Everything here is an upsert keyed on (tenant_id, platform, post_id) or (post_id, captured_on), so a
 rerun after a failed night is fixed by running again, never by cleaning up.
 """
 
@@ -78,7 +78,7 @@ def ingest(
     )
     stats.raw = len(captures)
 
-    # 2. posts: upsert on (platform, post_id); content/media may have been edited
+    # 2. posts: upsert on (tenant_id, platform, post_id); content/media may have been edited
     post_rows = [
         {
             "tenant_id": tenant_id,
@@ -95,7 +95,7 @@ def ingest(
     ]
     stmt = insert(Post).values(post_rows)
     stmt = stmt.on_conflict_do_update(
-        constraint="uq_post_platform_id",
+        constraint="uq_post_tenant_platform_id",
         set_={
             "content": stmt.excluded.content,
             "media_type": stmt.excluded.media_type,

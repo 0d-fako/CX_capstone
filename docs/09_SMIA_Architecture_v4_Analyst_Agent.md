@@ -96,7 +96,7 @@ Every tenant-scoped table carries `tenant_id` from migration 0001. Row-level sec
 | `targets` | Monitored accounts | tenant_id, platform, handle, ownership (`competitor` \| `own`), role (`direct` \| `adjacent` \| `aspirational`), source (`scrapecreators` \| `meta_graph` \| …), follower_count, verified_at, active, last_checked_at |
 | `chat_sessions` | One research conversation | id, user, channel, tenant_id (null until onboarded), stage (`interview` \| `discovering` \| `confirming` \| `collecting` \| `ready`), messages JSONB (append-only), credits_used, created_at, updated_at |
 | `raw_captures` | Untouched vendor payload | tenant_id, target_id, captured_at, payload JSONB |
-| `posts` | One row per unique post | tenant_id, target_id, platform, post_id, posted_at, content, media_type, media_duration_s, url; unique on (platform, post_id) |
+| `posts` | One row per unique post per tenant | tenant_id, target_id, platform, post_id, posted_at, content, media_type, media_duration_s, url; unique on (tenant_id, platform, post_id). Two tenants tracking the same account hold separate rows, so tenant isolation never depends on a join |
 | `metric_snapshots` | One row per post per day | post_id, captured_on, likes, comments, shares, views |
 | `post_labels` | Labels along any dimension | post_id, dimension, label, source (`rule` \| `model` \| `human`), model_id, definition_hash, run_id, created_at |
 | `agent_runs` | Full trace of one agent turn or scheduled run | id, tenant_id, session_id (null for scheduled), kind (`research` \| `digest` \| `playbook`), model_id, prompt_version, thresholds_version, started_at, finished_at, tool_calls JSONB, draft, validation JSONB, usage JSONB, status |

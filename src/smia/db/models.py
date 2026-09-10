@@ -103,7 +103,7 @@ class RawCapture(Base):
 class Post(Base):
     __tablename__ = "posts"
     __table_args__ = (
-        UniqueConstraint("platform", "post_id", name="uq_post_platform_id"),
+        UniqueConstraint("tenant_id", "platform", "post_id", name="uq_post_tenant_platform_id"),
         Index("ix_posts_tenant_posted", "tenant_id", "posted_at"),
     )
 
@@ -111,7 +111,7 @@ class Post(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"), index=True)
     target_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("targets.id"), index=True)
     platform: Mapped[str] = mapped_column(String(24))
-    post_id: Mapped[str] = mapped_column(String(160))  # vendor/platform id
+    post_id: Mapped[str] = mapped_column(String(160))  # vendor/platform id; unique per tenant
     posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     content: Mapped[str | None] = mapped_column(Text)
     media_type: Mapped[str | None] = mapped_column(String(24))  # video|image|carousel|text|link

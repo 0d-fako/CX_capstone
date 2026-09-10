@@ -8,7 +8,7 @@ One analyst agent, two modes. **Research chat:** a user describes a venture idea
 ## Non-negotiable rules
 1. **Four layers, one direction.** `collectors` → `ingestion` → `metrics`/`labeling` → `tools` → `agent` → `delivery`. A module never imports from a layer above it. The agent never touches vendor APIs or raw SQL.
 2. **Collector contract.** Every source implements `Collector.collect(target) -> list[RawCapture]`. Only `collectors/scrapecreators.py` (and later first-party adapters) knows a vendor exists.
-3. **Idempotent data layer.** Upsert on `(platform, post_id)`; one `metric_snapshots` row per post per day; `raw_captures` keeps the untouched payload. Reruns are always safe.
+3. **Idempotent data layer.** Upsert on `(tenant_id, platform, post_id)`; one `metric_snapshots` row per post per day; `raw_captures` keeps the untouched payload. Reruns are always safe.
 4. **`tenant_id` on every tenant-scoped table** from migration 0001. Tools bind the tenant at construction; the model never supplies a tenant id.
 5. **Every number comes from a tool call in this run.** `agent/validate.py` fails any draft with a numeric claim that does not trace to a cited tool result. Never weaken the validator to make a draft pass.
 6. **Thresholds are config, not prompt.** Eligibility, recency half-life, confidence tiers and the mix damping factor live in `config/thresholds.yaml`, versioned and stamped into `agent_runs`.

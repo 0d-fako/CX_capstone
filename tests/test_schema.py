@@ -39,7 +39,7 @@ def test_idempotency_keys_exist():
             if u.__class__.__name__ == "UniqueConstraint"
         }
 
-    assert ("platform", "post_id") in uniques(posts)
+    assert ("tenant_id", "platform", "post_id") in uniques(posts)
     assert ("post_id", "captured_on") in uniques(snaps)
     assert ("post_id", "dimension", "definition_hash") in uniques(labels)
 

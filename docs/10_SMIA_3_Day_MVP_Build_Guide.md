@@ -71,7 +71,7 @@ smia/
 **Concept.** The database is the design. Raw payloads are kept so you can reprocess forever without re-spending credits. Snapshots are one row per post per day because the curve is the signal. `post_labels` replaces a frozen taxonomy. `chat_sessions` and the tenant `status` column are what let a research conversation become a tenant without a form.
 
 **Prompt:**
-> Set up the project with uv: pyproject.toml (pydantic v2, pydantic-settings, httpx, tenacity, sqlalchemy 2, alembic, psycopg[binary], anthropic, pyyaml, pytest), a settings module reading .env, and SQLAlchemy models for the eleven MVP tables in docs/09 section 4 with exactly those columns, including tenants.status and venture_brief, targets.role and follower_count, and chat_sessions. Unique on posts (platform, post_id); unique on metric_snapshots (post_id, captured_on); unique on post_labels (post_id, dimension, definition_hash). One Alembic migration. Load config/thresholds.yaml with the defaults from docs/05 sections 3 to 5 plus session_credit_cap: 60 and stamp a thresholds_version.
+> Set up the project with uv: pyproject.toml (pydantic v2, pydantic-settings, httpx, tenacity, sqlalchemy 2, alembic, psycopg[binary], anthropic, pyyaml, pytest), a settings module reading .env, and SQLAlchemy models for the eleven MVP tables in docs/09 section 4 with exactly those columns, including tenants.status and venture_brief, targets.role and follower_count, and chat_sessions. Unique on posts (tenant_id, platform, post_id); unique on metric_snapshots (post_id, captured_on); unique on post_labels (post_id, dimension, definition_hash). One Alembic migration. Load config/thresholds.yaml with the defaults from docs/05 sections 3 to 5 plus session_credit_cap: 60 and stamp a thresholds_version.
 
 **Verify:**
 ```
@@ -94,7 +94,7 @@ In the Neon console: eleven tables, no rows yet.
 
 ## Step 4 — Ingestion, snapshots and the collect stage (25 min)
 
-**Concept.** Upsert on `(platform, post_id)` makes every rerun safe. Each run writes today's metrics row per post. Format is labelled by rule at ingest. A canary records when an active target returns nothing. The same function serves the nightly stage later and `collect_now` in the chat tomorrow.
+**Concept.** Upsert on `(tenant_id, platform, post_id)` makes every rerun safe. Each run writes today's metrics row per post. Format is labelled by rule at ingest. A canary records when an active target returns nothing. The same function serves the nightly stage later and `collect_now` in the chat tomorrow.
 
 **Prompt:**
 > Implement ingestion/normalize.py: for a tenant, target and list of RawCapture, write raw_captures, upsert posts, upsert today's metric_snapshots row, and write a post_labels row with dimension "format" and source "rule" using: video with media_duration_s >= 90 is long_video, other video is short_video, image, carousel, text and link map directly. Implement pipeline.collect(tenant_id) that for each active target calls the collector, canary-checks for zero items, ingests, stamps last_checked_at, writes a pipeline_runs heartbeat, and returns per-target counts and credits used. Add CLI `collect --tenant X` and a dev-only CLI `seed-tenant name industry handles...` that creates a prospect tenant for testing. Unit-test the format rule and upsert idempotency.

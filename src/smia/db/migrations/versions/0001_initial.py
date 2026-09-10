@@ -104,7 +104,7 @@ def upgrade() -> None:
         sa.Column(
             "first_seen_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
-        sa.UniqueConstraint("platform", "post_id", name="uq_post_platform_id"),
+        sa.UniqueConstraint("tenant_id", "platform", "post_id", name="uq_post_tenant_platform_id"),
     )
     op.create_index("ix_posts_tenant_id", "posts", ["tenant_id"])
     op.create_index("ix_posts_target_id", "posts", ["target_id"])
