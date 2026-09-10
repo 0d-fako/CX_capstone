@@ -73,6 +73,56 @@ def _cmd_smoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_seed_tenant(args: argparse.Namespace) -> int:
+    """Dev-only: create a prospect tenant from platform:handle pairs (no verification)."""
+    from smia.db.models import Target, Tenant
+    from smia.db.session import db_session
+
+    with db_session() as s:
+        from sqlalchemy import select
+
+        tenant = s.execute(select(Tenant).where(Tenant.name == args.name)).scalar_one_or_none()
+        if tenant is None:
+            tenant = Tenant(name=args.name, industry=args.industry, status="prospect")
+            s.add(tenant)
+            s.flush()
+        existing = {(t.platform, t.handle) for t in tenant.targets}
+        added = 0
+        for spec in args.targets:
+            platform, _, handle = spec.partition(":")
+            if platform not in ("instagram", "tiktok", "twitter") or not handle:
+                print(f"skip {spec!r}: expected platform:handle")
+                continue
+            if (platform, handle) in existing:
+                continue
+            s.add(Target(tenant_id=tenant.id, platform=platform, handle=handle.lstrip("@")))
+            added += 1
+        print(f"tenant {tenant.name} ({tenant.status}) id={tenant.id}  targets added: {added}")
+    return 0
+
+
+def _cmd_collect(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from smia.db.models import Tenant
+    from smia.db.session import db_session
+    from smia.pipeline import collect
+
+    with db_session() as s:
+        tenant = s.execute(select(Tenant).where(Tenant.name == args.tenant)).scalar_one_or_none()
+        if tenant is None:
+            print(f"no tenant named {args.tenant!r}")
+            return 1
+        summary = collect(s, tenant.id)
+    for o in summary.outcomes:
+        flag = "CANARY" if o.canary else ("ERROR " + o.error if o.error else "ok")
+        print(f"  {o.platform:9s} @{o.handle:24s} posts={o.posts:3d} skipped={o.skipped} credits={o.credits} {flag}")
+        if o.caveat:
+            print(f"            note: {o.caveat}")
+    print(f"total posts upserted: {summary.posts}  credits used: {summary.credits_used}  run id: {summary.pipeline_run_id}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="smia", description="Social Media Intelligence Agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -89,6 +139,16 @@ def main(argv: list[str] | None = None) -> int:
     smoke.add_argument("handle")
     smoke.add_argument("--raw", action="store_true", help="print the vendor JSON of the first item")
     smoke.set_defaults(func=_cmd_smoke)
+
+    seed = sub.add_parser("seed-tenant", help="dev: create a prospect tenant from platform:handle pairs")
+    seed.add_argument("name")
+    seed.add_argument("industry")
+    seed.add_argument("targets", nargs="+", metavar="platform:handle")
+    seed.set_defaults(func=_cmd_seed_tenant)
+
+    col = sub.add_parser("collect", help="collect all active targets for a tenant (idempotent)")
+    col.add_argument("--tenant", required=True, help="tenant name")
+    col.set_defaults(func=_cmd_collect)
 
     args = parser.parse_args(argv)
     return args.func(args)
