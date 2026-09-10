@@ -1,0 +1,37 @@
+"""Engine and session factory. One place that knows the connection string."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from functools import lru_cache
+from typing import Iterator
+
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from smia.settings import get_settings
+
+
+@lru_cache
+def get_engine() -> Engine:
+    return create_engine(get_settings().database_url, pool_pre_ping=True, future=True)
+
+
+@lru_cache
+def _session_factory() -> sessionmaker[Session]:
+    return sessionmaker(bind=get_engine(), expire_on_commit=False)
+
+
+@contextmanager
+def db_session() -> Iterator[Session]:
+    """Commit on success, roll back on error."""
+    session = _session_factory()()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

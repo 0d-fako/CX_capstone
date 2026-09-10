@@ -1,0 +1,6 @@
+# Promoted labelling dimensions (doc 09 §9). A dimension lands here after being cited
+# in three or more approved reports. `format` is pre-promoted and rule-based.
+format:
+  source: rule
+  labels: [short_video, long_video, static_image, carousel, text_post, link_share, live_replay, other]
+  definition: "Media format derived from media_type and duration at ingest. Video >= 90s is long_video."

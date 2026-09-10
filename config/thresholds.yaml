@@ -1,0 +1,44 @@
+# Decision thresholds. Every value here is a product decision (doc 05 §9), not an
+# engineering one. Bump `version` on any change; it is stamped into agent_runs.
+version: "1.0"
+
+engagement:
+  trailing_window_days: 90        # account median computed over this window
+  maturity_days: 7                # RE reported as "initial" until a post has this many snapshots
+  median_floor: 1                 # guard against divide-by-zero on dead accounts
+  recency_half_life_days: 28      # w = 0.5 ** (age_days / half_life)
+
+eligibility:
+  cell_min_n: 10                  # below this a cell is "insufficient"
+  trend_min_n_per_window: 5       # trend shown only when both 28d windows have this many
+  trend_window_days: 28
+  cadence_min_weeks: 4
+  cadence_min_competitors: 3
+  transfer_min_n: 15
+  transfer_min_lift: 1.5
+  whitespace_min_demand: 1.3
+
+confidence:
+  established_min_n: 25
+  directional_min_n: 10
+
+recommendation:
+  mix_damping: 0.5                # mix = damping*share + (1-damping)*performance_weight
+  cadence_max_change_pct: 50      # never recommend beyond +-50% of current cadence
+
+labeling:
+  max_posts_per_call: 200
+  batch_size: 25
+  batch_api_threshold: 100        # above this many pending posts, use the Batch API
+
+research:
+  session_credit_cap: 60          # vendor credits per chat session (resolve + collect)
+  max_interview_questions: 3
+  min_targets: 5
+  target_targets: 8
+  max_targets: 12
+  web_search_max_uses: 8
+  web_fetch_max_uses: 8
+
+scheduled:
+  web_search_max_uses: 5
