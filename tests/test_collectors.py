@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import UTC
 
 import httpx
 import pytest
@@ -10,6 +10,7 @@ import pytest
 from smia.collectors.base import TargetSpec
 from smia.collectors.scrapecreators import (
     ScrapeCreatorsCollector,
+    VendorError,
     parse_instagram_item,
     parse_instagram_profile,
     parse_tiktok_item,
@@ -43,7 +44,7 @@ TW_ITEM = {
 def test_instagram_item_maps_to_envelope():
     cap = parse_instagram_item(IG_ITEM, "acme")
     assert cap and cap.post_id == "3141592653"
-    assert cap.posted_at.tzinfo is timezone.utc
+    assert cap.posted_at.tzinfo is UTC
     assert cap.media_type == "video" and cap.media_duration_s == 95
     assert cap.metrics.likes == 120 and cap.metrics.views == 4300 and cap.metrics.shares == 0
     assert cap.content == "New drop this Friday"
@@ -120,6 +121,6 @@ def test_server_error_retries_once_then_raises():
         calls["n"] += 1
         return httpx.Response(503, text="down")
     c = _collector(handler)
-    with pytest.raises(Exception):
+    with pytest.raises(VendorError):
         c.collect(TargetSpec("tiktok", "acme"))
     assert calls["n"] == 2

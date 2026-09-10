@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     BigInteger,
@@ -24,7 +24,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
-    type_annotation_map = {dict[str, Any]: JSONB, list[Any]: JSONB}
+    type_annotation_map: ClassVar[dict] = {dict[str, Any]: JSONB, list[Any]: JSONB}
 
 
 def _uuid() -> uuid.UUID:

@@ -9,14 +9,15 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from smia.collectors.base import RawCapture
-from smia.db.models import MetricSnapshot, Post, PostLabel, RawCapture as RawCaptureRow, Target
+from smia.db.models import MetricSnapshot, Post, PostLabel, Target
+from smia.db.models import RawCapture as RawCaptureRow
 from smia.settings import load_dimensions
 
 FORMAT_DIMENSION = "format"
@@ -64,7 +65,7 @@ def ingest(
     stats = IngestStats()
     if not captures:
         return stats
-    captured_on = captured_on or datetime.now(timezone.utc).date()
+    captured_on = captured_on or datetime.now(UTC).date()
     fdh = format_definition_hash()
 
     # 1. untouched vendor payloads, one row per capture (the replay source)

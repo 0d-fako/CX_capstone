@@ -17,7 +17,7 @@ layer records that on the capture.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -75,7 +75,7 @@ def parse_instagram_item(item: dict[str, Any], handle: str) -> RawCapture | None
     ts = item.get("taken_at")
     if ts is None:
         return None
-    posted_at = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+    posted_at = datetime.fromtimestamp(int(ts), tz=UTC)
     media_type = IG_MEDIA_TYPES.get(_int(item.get("media_type"), None) or -1)
     duration = item.get("video_duration")
     code = item.get("code")
@@ -87,7 +87,7 @@ def parse_instagram_item(item: dict[str, Any], handle: str) -> RawCapture | None
         posted_at=posted_at,
         content=_get(item, "caption", "text") or None,
         media_type=media_type,
-        media_duration_s=int(round(float(duration))) if duration else None,
+        media_duration_s=round(float(duration)) if duration else None,
         url=url,
         metrics=Metrics(
             likes=_int(item.get("like_count")) or 0,
@@ -110,10 +110,10 @@ def parse_tiktok_item(item: dict[str, Any], handle: str) -> RawCapture | None:
         platform="tiktok",
         handle=handle,
         post_id=str(aweme_id),
-        posted_at=datetime.fromtimestamp(int(ts), tz=timezone.utc),
+        posted_at=datetime.fromtimestamp(int(ts), tz=UTC),
         content=item.get("desc") or None,
         media_type="video",
-        media_duration_s=int(round(int(duration_ms) / 1000)) if duration_ms else None,
+        media_duration_s=round(int(duration_ms) / 1000) if duration_ms else None,
         url=item.get("share_url"),
         metrics=Metrics(
             likes=_int(stats.get("digg_count")) or 0,
@@ -148,7 +148,7 @@ def parse_twitter_item(item: dict[str, Any], handle: str) -> RawCapture | None:
     except (TypeError, ValueError):
         return None
     if posted_at.tzinfo is None:
-        posted_at = posted_at.replace(tzinfo=timezone.utc)
+        posted_at = posted_at.replace(tzinfo=UTC)
     views = _int(_get(item, "views", "count"), None)
     url = item.get("url") or f"https://x.com/{handle}/status/{tweet_id}"
     return RawCapture(
@@ -286,7 +286,7 @@ class ScrapeCreatorsCollector:
         for item in items:
             try:
                 cap = parser(item, target.handle) if isinstance(item, dict) else None
-            except Exception as e:  # a bad item never kills the batch
+            except Exception as e:  # noqa: BLE001 - a bad item never kills the batch
                 log.warning("skip %s item on %s: %s", target.platform, target.handle, e)
                 cap = None
             if cap is None:

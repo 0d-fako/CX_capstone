@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -56,7 +56,7 @@ class FakeCollector:
 def _cap(pid: str, likes: int) -> RawCapture:
     return RawCapture(
         platform="instagram", handle="acme_test", post_id=pid,
-        posted_at=datetime(2026, 9, 1, tzinfo=timezone.utc), content=f"post {pid}",
+        posted_at=datetime(2026, 9, 1, tzinfo=UTC), content=f"post {pid}",
         media_type="video", media_duration_s=100, url=f"https://example/{pid}",
         metrics=Metrics(likes=likes, comments=1), raw_json={"pk": pid},
     )

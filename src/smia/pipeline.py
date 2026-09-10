@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -109,9 +109,9 @@ def collect(
             continue
         stats = ingest(session, tenant_id, t, res.captures)
         out.posts = stats.posts_upserted
-        t.last_checked_at = datetime.now(timezone.utc)
+        t.last_checked_at = datetime.now(UTC)
 
-    run.finished_at = datetime.now(timezone.utc)
+    run.finished_at = datetime.now(UTC)
     run.items = summary.posts
     run.credits_used = summary.credits_used
     run.status = "canary" if summary.canaries else ("error" if all(o.error for o in summary.outcomes) and summary.outcomes else "ok")
