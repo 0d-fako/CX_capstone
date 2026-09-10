@@ -43,6 +43,36 @@ def _cmd_db_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_smoke(args: argparse.Namespace) -> int:
+    """Resolve and fetch one real handle. Costs two vendor credits."""
+    from smia.collectors.base import TargetSpec
+    from smia.collectors.scrapecreators import ScrapeCreatorsCollector
+    from smia.settings import get_settings
+
+    key = get_settings().scrapecreators_api_key
+    if not key:
+        print("SCRAPECREATORS_API_KEY is not set")
+        return 1
+    c = ScrapeCreatorsCollector(key)
+    info = c.resolve_handle(args.platform, args.handle)
+    if info is None:
+        print(f"{args.platform}/{args.handle}: not found (credits used: {c.credits_used})")
+        return 1
+    print("profile:", info.model_dump())
+    res = c.collect(TargetSpec(args.platform, args.handle))
+    print(f"posts returned: {len(res.captures)}  skipped: {res.skipped_items}  credits used: {c.credits_used}")
+    if res.captures:
+        first = res.captures[0]
+        print("first capture:", first.model_dump(exclude={"raw_json"}))
+        from collections import Counter
+        empties = Counter(f for cap in res.captures for f in cap.empty_fields())
+        print("empty fields across batch:", dict(empties) or "none")
+        if args.raw:
+            import json
+            print(json.dumps(first.raw_json, indent=2)[:3000])
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="smia", description="Social Media Intelligence Agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -53,6 +83,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("db-check", help="connect to the database and verify the schema").set_defaults(
         func=_cmd_db_check
     )
+
+    smoke = sub.add_parser("smoke", help="resolve + fetch one real handle (2 credits)")
+    smoke.add_argument("platform", choices=["instagram", "tiktok", "twitter"])
+    smoke.add_argument("handle")
+    smoke.add_argument("--raw", action="store_true", help="print the vendor JSON of the first item")
+    smoke.set_defaults(func=_cmd_smoke)
 
     args = parser.parse_args(argv)
     return args.func(args)
