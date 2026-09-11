@@ -144,7 +144,45 @@ def _cmd_label(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    """Run the analyst for a digest or playbook and print the draft."""
+    import json
+
+    from sqlalchemy import select
+
+    from smia.agent.run import run_report
+    from smia.db.models import Tenant
+    from smia.db.session import db_session
+
+    with db_session() as s:
+        tenant = s.execute(select(Tenant).where(Tenant.name == args.tenant)).scalar_one_or_none()
+        if tenant is None:
+            print(f"no tenant named {args.tenant!r}")
+            return 1
+        tid = tenant.id
+
+    def progress(text: str) -> None:
+        if args.verbose:
+            print("--- model ---")
+            print(text[:1200])
+            print()
+
+    res = run_report(args.kind, tid, on_text=progress)
+    print(res.draft)
+    print()
+    print("=" * 70)
+    print(f"run id: {res.run_id}   status: {res.status}   tool calls: {len(res.tool_calls)}")
+    print("tools used:", ", ".join(f"{c['ref']}={c['name']}" for c in res.tool_calls))
+    print("usage:", json.dumps(res.usage))
+    if res.validation:
+        print("validation:", json.dumps(res.validation)[:800])
+    return 0 if res.status in ("ok", "ungrounded") else 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(prog="smia", description="Social Media Intelligence Agent")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -178,6 +216,12 @@ def main(argv: list[str] | None = None) -> int:
     lab.add_argument("--labels", required=True, help="comma-separated; 'other' is always added")
     lab.add_argument("--limit", type=int, default=200)
     lab.set_defaults(func=_cmd_label)
+
+    for kind in ("digest", "playbook"):
+        rp = sub.add_parser(kind, help=f"run the analyst and print a {kind} draft")
+        rp.add_argument("--tenant", required=True)
+        rp.add_argument("--verbose", action="store_true", help="print the model's text as it goes")
+        rp.set_defaults(func=_cmd_report, kind=kind)
 
     args = parser.parse_args(argv)
     return args.func(args)
