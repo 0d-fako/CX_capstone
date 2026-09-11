@@ -103,3 +103,27 @@ def test_light_mode_is_paragraph_scoped():
     assert rep.ok
     rep2 = validate("Its median RE is 4.4 on 21 posts [T2].", ctx_with_calls(), mode="light")
     assert not rep2.ok
+
+
+def test_insufficient_rule_ignores_other_and_labels_eligible_elsewhere():
+    """Regression: 'other' as a word, and a label that is eligible on its own but insufficient
+    inside a cross cell, must not trap the agent (it burned four submits on this)."""
+    ctx = ctx_with_calls()
+    ctx.record("cell_stats", {"dimension": "format", "cross_dimension": "tone"}, {
+        "cells": [
+            {"label": "short_video", "cross_label": "relatable_humour", "n": 4, "re_med": None, "confidence": "insufficient"},
+            {"label": "short_video", "cross_label": "education_howto", "n": 3, "re_med": None, "confidence": "insufficient"},
+        ]
+    })
+    draft = GOOD.replace(
+        "Short video leads with a median RE of 0.89 on n=21, directional [T2].",
+        "Short video leads with a median RE of 0.89 on n=21, directional [T2]. The other cells are thinner; "
+        "short_video x relatable_humour is collecting at n=4 [T4].",
+    )
+    rep = validate(draft, ctx)
+    assert not any(f.rule == "insufficient_promoted" for f in rep.findings), rep.as_dict()
+    # but a genuine promotion of the cross cell still fails
+    bad = draft.replace("is collecting at n=4 [T4]", "shows a median RE of 0.89 [T4]")
+    rep2 = validate(bad, ctx)
+    assert any(f.rule == "insufficient_promoted" for f in rep2.findings)
+

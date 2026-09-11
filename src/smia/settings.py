@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     scrapecreators_api_key: str | None = Field(default=None, alias="SCRAPECREATORS_API_KEY")
     slack_webhook_url: str | None = Field(default=None, alias="SLACK_WEBHOOK_URL")
+    slack_bot_token: str | None = Field(default=None, alias="SLACK_BOT_TOKEN")  # xoxb-
+    slack_app_token: str | None = Field(default=None, alias="SLACK_APP_TOKEN")  # xapp-, Socket Mode
 
     analyst_model: str = Field(default="claude-opus-5", alias="SMIA_ANALYST_MODEL")
     labeling_model: str = Field(default="claude-haiku-4-5", alias="SMIA_LABELING_MODEL")

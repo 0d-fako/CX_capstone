@@ -65,6 +65,7 @@ def build_discovery_tools(
     cfg = load_thresholds()["research"]
     cap = int(cfg["session_credit_cap"])
     verified: dict[tuple[str, str], dict[str, Any]] = {}
+    submit_attempts: dict[uuid.UUID, int] = {}  # per turn (run_id)
 
     def _remaining() -> int:
         return cap - sess.credits_used(session_id)
@@ -187,10 +188,16 @@ def build_discovery_tools(
             return ctx.record("submit_report", {"kind": kind}, {"accepted": False}, error="no tenant yet")
         rep = validate(markdown, ctx)
         fatal = [f for f in rep.findings if f.rule != "uncited_in_sentence"]
-        if not rep.ok:
-            out = {"accepted": False, "summary": rep.summary(),
-                   "findings": [f"[{f.rule}] {f.location}: {f.detail}" for f in fatal[:40]]}
+        attempt = submit_attempts.get(ctx.run_id, 0) + 1
+        submit_attempts[ctx.run_id] = attempt
+        flagged = False
+        if not rep.ok and attempt < 2:
+            out = {"accepted": False, "attempt": attempt, "summary": rep.summary(),
+                   "findings": [f"[{f.rule}] {f.location}: {f.detail}" for f in fatal[:40]],
+                   "note": "fix these and submit once more; a second failure is stored flagged for the reviewer"}
             return ctx.record("submit_report", {"kind": kind, "chars": len(markdown)}, out)
+        if not rep.ok:
+            flagged = True  # stored and delivered with the findings attached; the loop ends here
         with db_session() as s:
             report = Report(run_id=ctx.run_id, tenant_id=ctx.tenant_id, kind=kind, period=period,
                             body=markdown, status="draft")
@@ -198,9 +205,19 @@ def build_discovery_tools(
             s.flush()
             report_id = report.id
         if deliver:
-            deliver(kind, markdown, report_id)
-        out = {"accepted": True, "report_id": str(report_id), "summary": rep.summary(),
-               "warnings": len(rep.findings) - len(fatal)}
+            head = ""
+            if flagged:
+                lines = [f"- [{f.rule}] {f.location}: {f.detail}" for f in fatal[:20]]
+                head = (
+                    "**Validator flagged this draft** (" + rep.summary() + "). Findings:" + chr(10)
+                    + chr(10).join(lines) + chr(10) + chr(10) + "---" + chr(10) + chr(10)
+                )
+            deliver(kind, head + markdown, report_id)
+        out = {"accepted": True, "flagged": flagged, "report_id": str(report_id), "summary": rep.summary(),
+               "warnings": len(rep.findings) - len(fatal),
+               "findings": [f"[{f.rule}] {f.location}: {f.detail}" for f in fatal[:20]] if flagged else []}
+        if flagged:
+            out["note"] = "stored and delivered with the validator's findings attached; tell the user it is flagged"
         return ctx.record("submit_report", {"kind": kind, "chars": len(markdown)}, out)
 
     return [resolve_handle, create_prospect, collect_now, submit_report]

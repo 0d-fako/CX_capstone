@@ -22,6 +22,17 @@ def create(user: str, channel: str = "cli") -> uuid.UUID:
         return row.id
 
 
+def find_by_channel(channel_key: str) -> uuid.UUID | None:
+    """Sessions created from Slack are keyed 'slack:<channel>:<thread_ts>'."""
+    from sqlalchemy import select
+
+    with db_session() as s:
+        return s.execute(
+            select(ChatSession.id).where(ChatSession.channel == channel_key)
+            .order_by(ChatSession.created_at.desc()).limit(1)
+        ).scalar_one_or_none()
+
+
 def load(session_id: uuid.UUID) -> dict[str, Any]:
     with db_session() as s:
         row = s.get(ChatSession, session_id)

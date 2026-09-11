@@ -27,7 +27,7 @@ from smia.delivery.slack import post_report
 from smia.llm import get_client
 from smia.settings import get_settings, load_thresholds
 from smia.tools.analysis import build_analysis_tools
-from smia.tools.discovery import ApprovalFn, build_discovery_tools
+from smia.tools.discovery import ApprovalFn, DeliverFn, build_discovery_tools
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +78,7 @@ class ChatRunner:
         collector: Collector | None = None,
         client: Any = None,
         on_text: Callable[[str], None] | None = None,
+        deliver: DeliverFn | None = None,
         deliver_to_slack: bool = True,
     ) -> None:
         self.session_id = session_id
@@ -97,12 +98,14 @@ class ChatRunner:
             {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": int(cfg["web_fetch_max_uses"])},
         ]
 
-        def deliver(kind: str, markdown: str, report_id: uuid.UUID) -> None:
+        def _webhook(kind: str, markdown: str, report_id: uuid.UUID) -> None:
             if deliver_to_slack:
                 try:
                     post_report(kind, markdown, report_id, validation_summary="validated: every number traces to a tool call")
                 except Exception:
                     log.exception("slack delivery failed for report %s", report_id)
+
+        deliver = deliver or _webhook
 
         self.discovery_tools = build_discovery_tools(self.ctx, session_id, approval=approval,
                                                      collector=collector, deliver=deliver)

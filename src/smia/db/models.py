@@ -75,7 +75,7 @@ class ChatSession(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     user: Mapped[str] = mapped_column(String(120))
-    channel: Mapped[str] = mapped_column(String(32), default="cli")  # cli|slack
+    channel: Mapped[str] = mapped_column(String(120), default="cli")  # cli | slack:<channel>:<thread_ts>
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenants.id"), index=True)
     # interview|discovering|confirming|collecting|ready
     stage: Mapped[str] = mapped_column(String(16), default="interview")

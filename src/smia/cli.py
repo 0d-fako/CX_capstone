@@ -19,6 +19,8 @@ def _cmd_config(args: argparse.Namespace) -> int:
         "ANTHROPIC_API_KEY": s.anthropic_api_key,
         "SCRAPECREATORS_API_KEY": s.scrapecreators_api_key,
         "SLACK_WEBHOOK_URL": s.slack_webhook_url,
+        "SLACK_BOT_TOKEN (slack chat)": s.slack_bot_token,
+        "SLACK_APP_TOKEN (slack chat)": s.slack_app_token,
     }.items() if not v]
     print(f"missing keys: {', '.join(missing) or 'none'}")
     return 0
@@ -210,6 +212,12 @@ def _cmd_activate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_slack(args: argparse.Namespace) -> int:
+    from smia.slack_app import main as slack_main
+
+    return slack_main()
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
         if hasattr(stream, "reconfigure"):
@@ -271,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     ac = sub.add_parser("activate", help="flip a prospect tenant to active")
     ac.add_argument("--tenant", required=True)
     ac.set_defaults(func=_cmd_activate)
+
+    sub.add_parser("slack", help="run the Slack chat surface (Socket Mode; DM the app or mention it)").set_defaults(func=_cmd_slack)
 
     args = parser.parse_args(argv)
     return args.func(args)

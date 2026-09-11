@@ -248,24 +248,45 @@ def validate(draft: str, ctx: RunContext, *, mode: str = "full") -> ValidationRe
 
 
 def _insufficient_cells(ctx: RunContext) -> list[tuple[str, str]]:
-    out = []
+    """Cells that are insufficient and whose label is never eligible anywhere else in the run.
+    'other' is skipped (too common a word), and a cross cell is only listed as a pair."""
+    eligible_labels: set[str] = set()
+    insufficient: list[tuple[str, str]] = []
     for c in ctx.calls:
         if c.name != "cell_stats" or not isinstance(c.output, dict):
             continue
         for cell in c.output.get("cells", []):
-            if cell.get("confidence") == "insufficient":
-                out.append((cell.get("label", ""), cell.get("cross_label") or ""))
+            label = (cell.get("label") or "").lower()
+            xlabel = (cell.get("cross_label") or "").lower()
+            if cell.get("confidence") in ("directional", "established"):
+                eligible_labels.add(label)
+                if xlabel:
+                    eligible_labels.add(f"{label}/{xlabel}")
+            elif cell.get("confidence") == "insufficient":
+                insufficient.append((label, xlabel))
+    out = []
+    for label, xlabel in insufficient:
+        if not label or label == "other" or xlabel == "other":
+            continue
+        if xlabel:
+            if f"{label}/{xlabel}" not in eligible_labels:
+                out.append((label, xlabel))
+        elif label not in eligible_labels:
+            out.append((label, ""))
     return out
 
 
 def _check_insufficient(body: str, cells: list[tuple[str, str]], loc: str, findings: list[Finding]) -> None:
-    """An insufficient cell may be named, but not with a median RE or trend attached."""
+    """An insufficient cell may be named, but not with a median RE attached. A cross cell only
+    counts when both labels appear together."""
+    low = body.lower()
     for label, xlabel in cells:
-        if not label:
-            continue
-        for m in re.finditer(re.escape(label), body, flags=re.IGNORECASE):
-            window = body[m.end(): m.end() + 160].lower()
-            if ("median re" in window or "re_med" in window or "re of" in window) and "insufficient" not in window and "collecting" not in window:
+        for m in re.finditer(re.escape(label), low):
+            window = low[max(0, m.start() - 80): m.end() + 160]
+            if xlabel and xlabel not in window:
+                continue
+            after = low[m.end(): m.end() + 160]
+            if ("median re" in after or "re_med" in after) and "insufficient" not in window and "collecting" not in window and "too early" not in window:
                 findings.append(Finding("insufficient_promoted", f"cell {label}{'/' + xlabel if xlabel else ''} appears with a metric", loc))
                 break
 

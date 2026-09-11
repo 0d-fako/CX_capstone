@@ -25,7 +25,7 @@ from smia.metrics.engagement import compute_re
 from smia.metrics.loader import load_posts
 from smia.settings import load_thresholds
 
-EXCERPT = 400
+EXCERPT = 240
 
 
 def _excerpt(text: str | None) -> str:
@@ -112,7 +112,7 @@ def build_analysis_tools(ctx: RunContext) -> list[Any]:
         label: str | None = None,
         min_re: float | None = None,
         order: str = "re",
-        limit: int = 20,
+        limit: int = 15,
         window_days: int = 90,
     ) -> str:
         """List posts with their relative engagement, format and a content excerpt.
@@ -183,7 +183,7 @@ def build_analysis_tools(ctx: RunContext) -> list[Any]:
             "account_median_engagement": r.account_median if r else None,
             "curve": [{"day": x.captured_on.isoformat(), "likes": x.likes, "comments": x.comments,
                        "shares": x.shares, "views": x.views} for x in snaps],
-            "content_untrusted": (post.content or "")[:3000],
+            "content_untrusted": (post.content or "")[:2000],
         }
         return ctx.record("get_post", {"post_id": post_id}, out)
 
