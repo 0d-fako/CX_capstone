@@ -21,11 +21,12 @@ from smia.agent.brief import (
     user_turn,
 )
 from smia.agent.trace import RunContext
+from smia.agent.validate import ValidationReport, validate
 from smia.db.models import AgentRun, ReviewFeedback
 from smia.db.session import db_session
 from smia.llm import get_client
 from smia.settings import get_settings, load_thresholds
-from smia.tools.analysis import build_analysis_tools
+from smia.tools.analysis import build_analysis_tools, tenant_summary
 
 log = logging.getLogger(__name__)
 
@@ -81,9 +82,13 @@ def run_report(
     extra_brief: str | None = None,
     client: Any = None,
     on_text: Callable[[str], None] | None = None,
-    validator: Callable[[str, RunContext], dict[str, Any]] | None = None,
+    auto_revise: bool = True,
+    validator: Callable[[str, RunContext], ValidationReport] = validate,
 ) -> RunResult:
-    """Run the analyst for a digest or playbook. Returns the draft and the trace."""
+    """Run the analyst for a digest or playbook, validate, revise once on failure.
+
+    Returns the final draft and trace. A draft that fails validation twice is returned with
+    status "ungrounded" so a reviewer sees it flagged rather than silently dropped."""
     if kind not in ("digest", "playbook"):
         raise ValueError("kind must be digest or playbook")
     settings = get_settings()
@@ -105,6 +110,7 @@ def run_report(
         )
 
     ctx = RunContext(tenant_id=tenant_id, run_id=run_id, kind=kind)
+    ctx.record("brief", {}, tenant_summary(tenant_id))  # T1: the header facts are citable too
     tools: list[Any] = build_analysis_tools(ctx)
     tools.append({
         "type": "web_search_20260209", "name": "web_search",
@@ -142,10 +148,12 @@ def run_report(
         draft = draft or f"[run failed: {e}]"
 
     usage = _sum_usage(messages)
-    validation = None
-    if validator and status == "ok":
-        validation = validator(draft, ctx)
-        if not validation.get("ok", True):
+    validation: dict[str, Any] | None = None
+    report: ValidationReport | None = None
+    if status == "ok":
+        report = validator(draft, ctx)
+        validation = report.as_dict()
+        if not report.ok:
             status = "ungrounded"
 
     with db_session() as s:
@@ -157,5 +165,22 @@ def run_report(
         run.validation = validation
         run.status = status
 
-    return RunResult(run_id=run_id, kind=kind, draft=draft, tool_calls=ctx.as_list(), usage=usage,
-                     status=status, validation=validation, messages=messages)
+    result = RunResult(run_id=run_id, kind=kind, draft=draft, tool_calls=ctx.as_list(), usage=usage,
+                       status=status, validation=validation, messages=messages)
+
+    if status == "ungrounded" and auto_revise and report is not None:
+        log.warning("run %s failed validation; revising once", run_id)
+        fatal = [f for f in report.findings if f.rule != "uncited_in_sentence"]
+        notes = chr(10).join(f"- [{f.rule}] {f.location}: {f.detail}" for f in fatal[:40])
+        extra = (
+            "An automated validator rejected the previous draft. Fix every item below; re-run the "
+            "tools you need and cite a ref on every number. Findings:" + chr(10) + notes
+        )
+        second = run_report(kind, tenant_id, revision_of=draft, extra_brief=extra, client=client,
+                            on_text=on_text, auto_revise=False, validator=validator)
+        with db_session() as s:
+            first = s.get(AgentRun, run_id)
+            first.status = "ungrounded_revised"
+        return second
+
+    return result

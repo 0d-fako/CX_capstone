@@ -70,6 +70,7 @@ def user_turn(tenant: Tenant, kind: str, *, period: str, reviewer_notes: list[st
         lines += ["", extra]
     lines += [
         "",
+        "The facts in this brief (post counts, dates, snapshot days) are tool result T1; cite [T1] when you use them.",
         f"Produce the {kind} per the template. Investigate with the tools first. Cite a ref for every number.",
     ]
     return "\n".join(lines)

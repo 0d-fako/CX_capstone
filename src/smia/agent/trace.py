@@ -60,6 +60,14 @@ class RunContext:
             payload["error"] = error
         return json.dumps(payload, ensure_ascii=False, default=str)
 
+    @classmethod
+    def from_stored(cls, tenant_id: uuid.UUID, run_id: uuid.UUID, kind: str, tool_calls: list[dict[str, Any]]) -> RunContext:
+        """Rebuild a context from agent_runs.tool_calls (for re-validation and tests)."""
+        ctx = cls(tenant_id=tenant_id, run_id=run_id, kind=kind)
+        ctx.calls = [ToolCall(ref=c["ref"], name=c["name"], input=c.get("input") or {}, output=c.get("output"),
+                              at=c.get("at", ""), error=c.get("error")) for c in tool_calls]
+        return ctx
+
     def by_ref(self, ref: str) -> ToolCall | None:
         for c in self.calls:
             if c.ref == ref:
