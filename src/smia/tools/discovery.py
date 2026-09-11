@@ -82,6 +82,8 @@ def build_discovery_tools(
         """
         handle = handle.strip().lstrip("@")
         key = (platform, handle.lower())
+        if sess.load(session_id)["stage"] == "interview":
+            sess.set_stage(session_id, "discovering")
         if key in verified:
             return ctx.record("resolve_handle", {"platform": platform, "handle": handle}, {**verified[key], "cached": True})
         if _remaining() <= 0:
