@@ -123,6 +123,27 @@ def _cmd_collect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_label(args: argparse.Namespace) -> int:
+    """Dev: label a tenant's posts on an ad-hoc dimension (Haiku, cents)."""
+    from sqlalchemy import select
+
+    from smia.db.models import Post, Tenant
+    from smia.db.session import db_session
+    from smia.labeling.label import label_posts
+
+    with db_session() as s:
+        tenant = s.execute(select(Tenant).where(Tenant.name == args.tenant)).scalar_one_or_none()
+        if tenant is None:
+            print(f"no tenant named {args.tenant!r}")
+            return 1
+        ids = list(s.execute(select(Post.id).where(Post.tenant_id == tenant.id).limit(args.limit)).scalars())
+        r = label_posts(s, tenant.id, args.dimension, args.definition, args.labels.split(","), ids)
+    print(f"dimension={r.dimension} hash={r.definition_hash} labels={r.labels}")
+    print(f"requested={r.requested} already={r.already_labelled} labelled_now={r.labelled_now} batch_api={r.via_batch_api}")
+    print(f"counts={r.counts} usage={r.usage} model={r.model_id}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="smia", description="Social Media Intelligence Agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -149,6 +170,14 @@ def main(argv: list[str] | None = None) -> int:
     col = sub.add_parser("collect", help="collect all active targets for a tenant (idempotent)")
     col.add_argument("--tenant", required=True, help="tenant name")
     col.set_defaults(func=_cmd_collect)
+
+    lab = sub.add_parser("label", help="dev: label a tenant's posts on an ad-hoc dimension")
+    lab.add_argument("--tenant", required=True)
+    lab.add_argument("--dimension", required=True)
+    lab.add_argument("--definition", required=True)
+    lab.add_argument("--labels", required=True, help="comma-separated; 'other' is always added")
+    lab.add_argument("--limit", type=int, default=200)
+    lab.set_defaults(func=_cmd_label)
 
     args = parser.parse_args(argv)
     return args.func(args)
