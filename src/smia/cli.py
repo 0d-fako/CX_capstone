@@ -179,6 +179,37 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0 if res.status in ("ok", "ungrounded") else 1
 
 
+def _cmd_chat(args: argparse.Namespace) -> int:
+    from smia.chat_cli import main as chat_main
+
+    return chat_main(args.session, args.user, args.verbose)
+
+
+def _cmd_review(args: argparse.Namespace) -> int:
+    import uuid
+
+    from smia.delivery.review import record_review
+
+    report = record_review(uuid.UUID(args.report_id), args.action, args.notes, args.reviewer)
+    print(f"report {report.id} ({report.kind}) -> {report.status}; feedback recorded")
+    if args.action == "revise" and args.rerun:
+        from smia.agent.run import run_report
+
+        res = run_report(report.kind, report.tenant_id, revision_of=report.body,
+                         extra_brief="Reviewer asked for a revision; their notes are above.")
+        print(f"revision run {res.run_id} status={res.status}")
+        print(res.draft)
+    return 0
+
+
+def _cmd_activate(args: argparse.Namespace) -> int:
+    from smia.delivery.review import activate_tenant
+
+    t = activate_tenant(args.tenant)
+    print(f"tenant {t.name} is now {t.status}; schedule nightly collect for it")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252
         if hasattr(stream, "reconfigure"):
@@ -222,6 +253,24 @@ def main(argv: list[str] | None = None) -> int:
         rp.add_argument("--tenant", required=True)
         rp.add_argument("--verbose", action="store_true", help="print the model's text as it goes")
         rp.set_defaults(func=_cmd_report, kind=kind)
+
+    ch = sub.add_parser("chat", help="research chat: idea -> competitors -> playbook (terminal)")
+    ch.add_argument("--session", help="resume an existing session id")
+    ch.add_argument("--user", default="cli")
+    ch.add_argument("--verbose", action="store_true", help="show the analyst's interim text")
+    ch.set_defaults(func=_cmd_chat)
+
+    rv = sub.add_parser("review", help="record a reviewer decision on a report")
+    rv.add_argument("report_id")
+    rv.add_argument("action", choices=["approve", "revise", "user_test"])
+    rv.add_argument("--notes")
+    rv.add_argument("--reviewer", default="cli")
+    rv.add_argument("--rerun", action="store_true", help="on revise, rerun the report with the notes")
+    rv.set_defaults(func=_cmd_review)
+
+    ac = sub.add_parser("activate", help="flip a prospect tenant to active")
+    ac.add_argument("--tenant", required=True)
+    ac.set_defaults(func=_cmd_activate)
 
     args = parser.parse_args(argv)
     return args.func(args)
