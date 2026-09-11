@@ -32,16 +32,24 @@ def _excerpt(text: str | None) -> str:
     return (text or "").replace("\n", " ").strip()[:EXCERPT]
 
 
+class NoTenantYet(Exception):
+    """Raised by analysis tools before a research session has a confirmed tenant."""
+
+
 def build_analysis_tools(ctx: RunContext) -> list[Any]:
     thresholds = load_thresholds()
-    tenant_id = ctx.tenant_id
+
+    def _tid() -> uuid.UUID:
+        if ctx.tenant_id is None:
+            raise NoTenantYet("no tenant yet: discover competitors, confirm the set with the user, then collect")
+        return ctx.tenant_id
 
     def _now() -> datetime:
         return datetime.now(UTC)
 
     def _loaded(days: int, platform: str | None = None, handles: list[str] | None = None, content: bool = False):
         with db_session() as s:
-            posts = load_posts(s, tenant_id, since=_now() - timedelta(days=days), platform=platform,
+            posts = load_posts(s, _tid(), since=_now() - timedelta(days=days), platform=platform,
                                handles=handles, include_content=content)
         return posts, compute_re(posts, _now(), thresholds["engagement"])
 
@@ -156,7 +164,7 @@ def build_analysis_tools(ctx: RunContext) -> list[Any]:
         with db_session() as s:
             row = s.execute(
                 select(Post, Target.handle).join(Target, Target.id == Post.target_id)
-                .where(Post.id == post_id, Post.tenant_id == tenant_id)
+                .where(Post.id == post_id, Post.tenant_id == _tid())
             ).first()
             if row is None:
                 return ctx.record("get_post", {"post_id": post_id}, {"found": False}, error="not found for this tenant")
@@ -185,7 +193,7 @@ def build_analysis_tools(ctx: RunContext) -> list[Any]:
         with db_session() as s:
             rows = s.execute(
                 select(PostLabel.dimension, PostLabel.label, PostLabel.source, func.count(PostLabel.id))
-                .join(Post, Post.id == PostLabel.post_id).where(Post.tenant_id == tenant_id)
+                .join(Post, Post.id == PostLabel.post_id).where(Post.tenant_id == _tid())
                 .group_by(PostLabel.dimension, PostLabel.label, PostLabel.source)
             ).all()
         dims: dict[str, dict[str, Any]] = {}
@@ -210,10 +218,10 @@ def build_analysis_tools(ctx: RunContext) -> list[Any]:
         with db_session() as s:
             if not post_ids:
                 post_ids = list(s.execute(
-                    select(Post.id).where(Post.tenant_id == tenant_id, Post.content.isnot(None))
+                    select(Post.id).where(Post.tenant_id == _tid(), Post.content.isnot(None))
                     .order_by(Post.posted_at.desc()).limit(100)
                 ).scalars())
-            res = _label_posts(s, tenant_id, dimension, definition, labels, post_ids, run_id=ctx.run_id)
+            res = _label_posts(s, _tid(), dimension, definition, labels, post_ids, run_id=ctx.run_id)
         return ctx.record("label_posts", {"dimension": dimension, "definition": definition, "labels": labels,
                                           "post_ids": post_ids[:5] + (["..."] if len(post_ids) > 5 else [])}, res.as_dict())
 
@@ -223,7 +231,7 @@ def build_analysis_tools(ctx: RunContext) -> list[Any]:
         with db_session() as s:
             rows = s.execute(
                 select(ReviewFeedback.action, ReviewFeedback.notes, ReviewFeedback.created_at)
-                .where(ReviewFeedback.tenant_id == tenant_id, ReviewFeedback.notes.isnot(None))
+                .where(ReviewFeedback.tenant_id == _tid(), ReviewFeedback.notes.isnot(None))
                 .order_by(ReviewFeedback.created_at.desc()).limit(5)
             ).all()
         out = {"notes": [{"action": a, "note": n, "at": t.isoformat()} for a, n, t in rows]}
@@ -239,7 +247,7 @@ def build_analysis_tools(ctx: RunContext) -> list[Any]:
         with db_session() as s:
             row = s.execute(
                 select(Report.period, Report.body, Report.created_at)
-                .where(Report.tenant_id == tenant_id, Report.kind == kind, Report.status.in_(["approved", "delivered"]))
+                .where(Report.tenant_id == _tid(), Report.kind == kind, Report.status.in_(["approved", "delivered"]))
                 .order_by(Report.created_at.desc()).limit(1)
             ).first()
         out = {"found": row is not None}

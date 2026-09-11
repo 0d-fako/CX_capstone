@@ -44,7 +44,7 @@ class ToolCall:
 class RunContext:
     """Bound tenant plus the growing list of tool calls for one agent run."""
 
-    tenant_id: uuid.UUID
+    tenant_id: uuid.UUID | None
     run_id: uuid.UUID
     kind: str
     calls: list[ToolCall] = field(default_factory=list)
@@ -61,7 +61,7 @@ class RunContext:
         return json.dumps(payload, ensure_ascii=False, default=str)
 
     @classmethod
-    def from_stored(cls, tenant_id: uuid.UUID, run_id: uuid.UUID, kind: str, tool_calls: list[dict[str, Any]]) -> RunContext:
+    def from_stored(cls, tenant_id: uuid.UUID | None, run_id: uuid.UUID, kind: str, tool_calls: list[dict[str, Any]]) -> RunContext:
         """Rebuild a context from agent_runs.tool_calls (for re-validation and tests)."""
         ctx = cls(tenant_id=tenant_id, run_id=run_id, kind=kind)
         ctx.calls = [ToolCall(ref=c["ref"], name=c["name"], input=c.get("input") or {}, output=c.get("output"),
