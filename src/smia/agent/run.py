@@ -22,7 +22,8 @@ from smia.agent.brief import (
 )
 from smia.agent.trace import RunContext
 from smia.agent.validate import ValidationReport, validate
-from smia.db.models import AgentRun, ReviewFeedback
+from smia.cost import estimate_usd
+from smia.db.models import AgentRun, Report, ReviewFeedback
 from smia.db.session import db_session
 from smia.llm import get_client
 from smia.settings import get_settings, load_thresholds
@@ -44,6 +45,7 @@ class RunResult:
     status: str
     validation: dict[str, Any] | None = None
     messages: list[Any] = field(default_factory=list)
+    report_id: uuid.UUID | None = None
 
 
 def _sum_usage(messages: list[Any]) -> dict[str, Any]:
@@ -128,8 +130,9 @@ def run_report(
             system=system_blocks(),
             tools=tools,
             thinking={"type": "adaptive"},
-            output_config={"effort": "high"},
+            output_config={"effort": thresholds.get("spend", {}).get("effort_scheduled", "high")},
             messages=[{"role": "user", "content": brief}],
+            cache_control={"type": "ephemeral"},
         )
         for message in runner:
             messages.append(message)
@@ -148,6 +151,7 @@ def run_report(
         draft = draft or f"[run failed: {e}]"
 
     usage = _sum_usage(messages)
+    usage["est_usd"] = estimate_usd(usage, settings.analyst_model)
     validation: dict[str, Any] | None = None
     report: ValidationReport | None = None
     if status == "ok":
@@ -165,8 +169,25 @@ def run_report(
         run.validation = validation
         run.status = status
 
+    report_id: uuid.UUID | None = None
+    if status in ("ok", "ungrounded") and draft and not (status == "ungrounded" and auto_revise):
+        # store the deliverable (a first-pass ungrounded draft is not stored; its revision will be)
+        with db_session() as s:
+            rep_row = Report(run_id=run_id, tenant_id=tenant_id, kind=kind, period=period_for(kind),
+                             body=draft, status="draft")
+            s.add(rep_row)
+            s.flush()
+            report_id = rep_row.id
+        try:
+            from smia.delivery.slack import post_report
+
+            summary = "validated: every number traces to a tool call" if status == "ok" else                 "VALIDATOR FLAGGED THIS DRAFT: " + (report.summary() if report else "")
+            post_report(kind, draft, report_id, validation_summary=summary)
+        except Exception:
+            log.exception("slack delivery failed")
+
     result = RunResult(run_id=run_id, kind=kind, draft=draft, tool_calls=ctx.as_list(), usage=usage,
-                       status=status, validation=validation, messages=messages)
+                       status=status, validation=validation, messages=messages, report_id=report_id)
 
     if status == "ungrounded" and auto_revise and report is not None:
         log.warning("run %s failed validation; revising once", run_id)

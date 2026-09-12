@@ -59,7 +59,22 @@ def main(session_id: str | None, user: str, verbose: bool) -> int:
             print("  ... " + text[:300].strip())
             print()
 
-    runner = ChatRunner(sid, approval=_approval, on_text=progress)
+    def deliver(kind: str, markdown: str, report_id: uuid.UUID) -> None:
+        from pathlib import Path
+
+        from smia.delivery.slack import post_report
+        from smia.export import export_report
+
+        docx, md = export_report(report_id, Path("exports"))
+        print()
+        print(f"  {kind} saved: {docx}")
+        print(f"  {kind} saved: {md}")
+        try:
+            post_report(kind, markdown, report_id, validation_summary="validated: every number traces to a tool call")
+        except Exception as e:  # noqa: BLE001
+            print(f"  (Slack post failed: {e})")
+
+    runner = ChatRunner(sid, approval=_approval, on_text=progress, deliver=deliver)
     while True:
         try:
             text = input("you> ").strip()
@@ -75,9 +90,11 @@ def main(session_id: str | None, user: str, verbose: bool) -> int:
         print("smia> " + res.reply)
         print()
         tools = ", ".join(res.tool_names) if res.tool_names else "none"
-        u = res.usage
-        print(f"  [stage={res.stage} | tools: {tools} | status={res.status} | "
-              f"in={u['input_tokens']} cached={u['cache_read_input_tokens']} out={u['output_tokens']}]")
+        u = res.usage or {}
+        print(f"  [stage={res.stage} | tools: {tools} | status={res.status} | effort={u.get('effort')} | "
+              f"in={u.get('input_tokens', 0)} cached={u.get('cache_read_input_tokens', 0)} "
+              f"out={u.get('output_tokens', 0)} | ~${u.get('est_usd', 0):.2f} this turn, "
+              f"~${runner.session_spend_usd():.2f} this session]")
         print()
     print(f"session {sid} saved. Resume with: smia chat --session {sid}")
     return 0

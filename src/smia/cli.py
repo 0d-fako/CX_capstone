@@ -173,7 +173,15 @@ def _cmd_report(args: argparse.Namespace) -> int:
     print(res.draft)
     print()
     print("=" * 70)
-    print(f"run id: {res.run_id}   status: {res.status}   tool calls: {len(res.tool_calls)}")
+    print(f"run id: {res.run_id}   status: {res.status}   tool calls: {len(res.tool_calls)}   report id: {res.report_id}")
+    if res.report_id:
+        from pathlib import Path
+
+        from smia.export import export_report
+
+        docx, md = export_report(res.report_id, Path("exports"))
+        print(f"saved: {docx}")
+        print(f"saved: {md}")
     print("tools used:", ", ".join(f"{c['ref']}={c['name']}" for c in res.tool_calls))
     print("usage:", json.dumps(res.usage))
     if res.validation:
@@ -216,6 +224,22 @@ def _cmd_slack(args: argparse.Namespace) -> int:
     from smia.slack_app import main as slack_main
 
     return slack_main()
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    import uuid
+    from pathlib import Path
+
+    from smia.export import export_report, latest_report_id
+
+    rid = uuid.UUID(args.report_id) if args.report_id else latest_report_id(args.tenant, args.kind)
+    if rid is None:
+        print("no report found; pass a report id or --tenant")
+        return 1
+    docx, md = export_report(rid, Path(args.out))
+    print(docx)
+    print(md)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -281,6 +305,13 @@ def main(argv: list[str] | None = None) -> int:
     ac.set_defaults(func=_cmd_activate)
 
     sub.add_parser("slack", help="run the Slack chat surface (Socket Mode; DM the app or mention it)").set_defaults(func=_cmd_slack)
+
+    ex = sub.add_parser("export", help="write a report as .docx and .md (latest for a tenant, or by id)")
+    ex.add_argument("report_id", nargs="?")
+    ex.add_argument("--tenant")
+    ex.add_argument("--kind", choices=["playbook", "digest"])
+    ex.add_argument("--out", default="exports")
+    ex.set_defaults(func=_cmd_export)
 
     args = parser.parse_args(argv)
     return args.func(args)

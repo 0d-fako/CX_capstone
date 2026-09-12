@@ -18,6 +18,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from smia.agent import session as sess
 from smia.agent.chat import ChatRunner
 from smia.delivery.slack import _mrkdwn, post_report
+from smia.export import report_files
 from smia.settings import get_settings
 from smia.tools.discovery import Decision, Proposal
 
@@ -105,12 +106,30 @@ class SlackSurface:
                 "validated: every number traces to a tool call"
             )
             self._post(channel, thread_ts, head + "\n\n" + _mrkdwn(markdown))
+            self._upload_report(channel, thread_ts, kind, report_id)
             try:
                 post_report(kind, markdown, report_id, validation_summary="validated: every number traces to a tool call")
             except Exception:
                 log.exception("webhook delivery failed")
 
         return ChatRunner(sid, approval=approval, on_text=on_text, deliver=deliver)
+
+    def _upload_report(self, channel: str, thread_ts: str, kind: str, report_id: uuid.UUID) -> None:
+        """Attach the report as .docx and .md so it can be downloaded and forwarded."""
+        try:
+            base, docx, md = report_files(report_id)
+            self.app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts,
+                initial_comment=f"Download the {kind}:",
+                file_uploads=[
+                    {"file": docx, "filename": f"{base}.docx", "title": f"{kind.title()} (Word)"},
+                    {"file": md, "filename": f"{base}.md", "title": f"{kind.title()} (Markdown)"},
+                ],
+            )
+        except Exception as e:
+            log.exception("file upload failed")
+            self._post(channel, thread_ts, f"(could not attach the file: {e}. The app needs the `files:write` scope. "
+                                           f"Export locally with `smia export {report_id}`.)")
 
     @staticmethod
     def _proposal_text(p: Proposal) -> str:
@@ -223,7 +242,11 @@ class SlackSurface:
         try:
             res = st.runner.turn(text)
             reply = _mrkdwn(res.reply) if res.reply else "(no reply)"
-            footer = f"\n\n_stage: {res.stage} · tools: {', '.join(res.tool_names) or 'none'} · {res.status}_"
+            u = res.usage or {}
+            footer = (
+                f"\n\n_stage: {res.stage} · tools: {', '.join(res.tool_names) or 'none'} · {res.status} · "
+                f"~${u.get('est_usd', 0):.2f} this turn, ~${st.runner.session_spend_usd():.2f} this session_"
+            )
             self._post(channel, thread_ts, reply + footer)
         except Exception as e:
             log.exception("turn failed")

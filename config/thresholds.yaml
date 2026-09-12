@@ -42,3 +42,18 @@ research:
 
 scheduled:
   web_search_max_uses: 5
+
+spend:
+  # Effort is the first cost lever (same model, less thinking and fewer tool calls).
+  effort_research_turn: medium   # the idea -> competitors -> playbook turn
+  effort_followup: low           # Q&A turns once the session is ready
+  effort_scheduled: high         # weekly digest / refreshed playbook runs
+  max_iterations_research: 45    # hard ceiling on API calls per chat turn
+  session_usd_cap: 4.0           # stop a turn once the session's estimated spend passes this
+  context_clear_trigger_tokens: 50000   # clear old tool results once input passes this
+  context_keep_tool_uses: 6             # always keep the most recent N tool results
+  context_clear_at_least_tokens: 10000
+
+prices_usd_per_mtok:             # update when models change; used only for estimates
+  claude-opus-5:   {input: 5.0, output: 25.0, cache_read: 0.5, cache_write: 6.25}
+  claude-haiku-4-5: {input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25}

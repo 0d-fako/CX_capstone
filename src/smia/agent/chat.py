@@ -21,6 +21,7 @@ from smia.agent import session as sess
 from smia.agent.trace import RunContext
 from smia.agent.validate import validate
 from smia.collectors.base import Collector
+from smia.cost import add_usage, estimate_usd, usage_of
 from smia.db.models import AgentRun
 from smia.db.session import db_session
 from smia.delivery.slack import post_report
@@ -32,8 +33,8 @@ from smia.tools.discovery import ApprovalFn, DeliverFn, build_discovery_tools
 log = logging.getLogger(__name__)
 
 RESEARCH_PROMPT_VERSION = "research_v1"
-MAX_ITERATIONS = 80
 MAX_TOKENS = 16_000
+CONTEXT_BETA = "context-management-2025-06-27"
 
 
 @dataclass
@@ -55,18 +56,6 @@ def _system() -> list[dict[str, Any]]:
 
 def _text_of(message: Any) -> str:
     return "".join(getattr(b, "text", "") for b in message.content if getattr(b, "type", None) == "text")
-
-
-def _usage(messages: list[Any]) -> dict[str, Any]:
-    tot = {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "turns": 0}
-    for m in messages:
-        u = getattr(m, "usage", None)
-        if not u:
-            continue
-        tot["turns"] += 1
-        for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
-            tot[k] += int(getattr(u, k, 0) or 0)
-    return tot
 
 
 class ChatRunner:
@@ -123,6 +112,11 @@ class ChatRunner:
         if calls:
             self.ctx = RunContext.from_stored(self.ctx.tenant_id, self.ctx.run_id, "research", calls)
 
+    def session_spend_usd(self) -> float:
+        with db_session() as s:
+            rows = s.execute(select(AgentRun.usage).where(AgentRun.session_id == self.session_id)).scalars().all()
+        return round(sum(float((u or {}).get("est_usd", 0) or 0) for u in rows), 4)
+
     def history(self) -> list[dict[str, str]]:
         msgs = sess.load(self.session_id)["messages"]
         out: list[dict[str, str]] = []
@@ -153,17 +147,40 @@ class ChatRunner:
             messages.append({"role": "user", "content": user_text})
         tools: list[Any] = [*self.discovery_tools, *self.analysis_tools, *self.web_tools]
 
+        spend = thresholds.get("spend", {})
+        stage_before = sess.load(self.session_id)["stage"]
+        effort = spend.get("effort_followup", "low") if stage_before == "ready" else spend.get("effort_research_turn", "medium")
+        usd_cap = float(spend.get("session_usd_cap", 0) or 0)
+        spent_before = self.session_spend_usd()
+        context_management = {
+            "edits": [{
+                "type": "clear_tool_uses_20250919",
+                "trigger": {"type": "input_tokens", "value": int(spend.get("context_clear_trigger_tokens", 50000))},
+                "keep": {"type": "tool_uses", "value": int(spend.get("context_keep_tool_uses", 6))},
+                "clear_at_least": {"type": "input_tokens", "value": int(spend.get("context_clear_at_least_tokens", 10000))},
+                "exclude_tools": ["create_prospect", "collect_now", "submit_report"],
+            }]
+        }
+
         out_msgs: list[Any] = []
         status = "ok"
         reply = ""
+        usage: dict[str, Any] = {}
+        budget_note = ""
         try:
             runner = self.client.beta.messages.tool_runner(
-                model=settings.analyst_model, max_tokens=MAX_TOKENS, max_iterations=MAX_ITERATIONS,
+                model=settings.analyst_model, max_tokens=MAX_TOKENS,
+                max_iterations=int(spend.get("max_iterations_research", 45)),
                 system=_system(), tools=tools, thinking={"type": "adaptive"},
-                output_config={"effort": "high"}, messages=messages,
+                output_config={"effort": effort}, messages=messages,
+                cache_control={"type": "ephemeral"},          # cache the whole prefix each iteration
+                context_management=context_management,        # drop stale tool results past the trigger
+                betas=[CONTEXT_BETA],
             )
             for m in runner:
                 out_msgs.append(m)
+                add_usage(usage, usage_of(m))
+                usage["est_usd"] = estimate_usd(usage, settings.analyst_model)
                 t = _text_of(m)
                 if t and self.on_text:
                     self.on_text(t)
@@ -171,8 +188,18 @@ class ChatRunner:
                     status = "error"
                     reply = "I can't help with that part of the request."
                     break
-            if status == "ok":
+                if usd_cap and spent_before + usage["est_usd"] > usd_cap and m.stop_reason == "tool_use":
+                    budget_note = (
+                        f"Stopped here to respect the session budget (about ${usd_cap:.2f}; "
+                        f"this session is at ${spent_before + usage['est_usd']:.2f}). "
+                        "Ask a narrower question, or raise session_usd_cap in config/thresholds.yaml."
+                    )
+                    status = "budget"
+                    break
+            if status in ("ok", "budget"):
                 reply = _text_of(out_msgs[-1]) if out_msgs else ""
+                if budget_note:
+                    reply = (reply + chr(10) + chr(10) if reply else "") + budget_note
         except Exception as e:
             log.exception("chat turn %s failed", run_id)
             status = "error"
@@ -189,7 +216,8 @@ class ChatRunner:
 
         sess.append(self.session_id, "assistant", reply, run_id=str(run_id))
         stage = sess.load(self.session_id)["stage"]
-        usage = _usage(out_msgs)
+        usage.setdefault("est_usd", estimate_usd(usage, settings.analyst_model))
+        usage["effort"] = effort
         with db_session() as s:
             run = s.get(AgentRun, run_id)
             run.tenant_id = self.ctx.tenant_id
